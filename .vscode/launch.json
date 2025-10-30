@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:edgepulse}",
+            "name": "Debug edgepulse",
+            "target": "edgepulse",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug edgepulse"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:edgepulse}",
+            "name": "Release edgepulse",
+            "target": "edgepulse",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release edgepulse"
+        }
+    ]
+}
