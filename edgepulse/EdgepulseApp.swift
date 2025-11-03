@@ -15,26 +15,31 @@ struct EdgepulseApp: App {
     static let bundleID = Bundle.main.bundleIdentifier ?? "chat.edgepulse"
     static let groupID = "group.\(bundleID)"
     
+    @StateObject private var appState = AppState()
     @StateObject private var chatViewModel: ChatViewModel
     #if os(iOS)
-    @Environment(\.scenePhase) var scenePhase
-    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     // Skip the very first .active-triggered Tor restart on cold launch
     @State private var didHandleInitialActive: Bool = false
     @State private var didEnterBackground: Bool = false
     #elseif os(macOS)
-    @NSApplicationDelegateAdaptor(MacAppDelegate.self) var appDelegate
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     #endif
     
     private let idBridge = NostrIdentityBridge()
+    private let keychain = KeychainManager() // Add keychain as stored property
+    
+    // Show password setup if not already set
+    @State private var showPasswordSetup: Bool = false
     
     init() {
-        let keychain = KeychainManager()
-        let idBridge = self.idBridge
+        let keychain = keychain
+        let bridge = idBridge
         _chatViewModel = StateObject(
             wrappedValue: ChatViewModel(
                 keychain: keychain,
-                idBridge: idBridge,
+                idBridge: bridge,
                 identityManager: SecureIdentityStateManager(keychain)
             )
         )
@@ -49,13 +54,16 @@ struct EdgepulseApp: App {
             ContentView()
                 .environmentObject(chatViewModel)
                 .onAppear {
+                    if keychain.getIdentityKey(forKey: "storage_password") == nil {
+                        showPasswordSetup = true
+                    }
                     NotificationDelegate.shared.chatViewModel = chatViewModel
                     // Inject live Noise service into VerificationService to avoid creating new BLE instances
                     VerificationService.shared.configure(with: chatViewModel.meshService.getNoiseService())
                     // Prewarm Nostr identity and QR to make first VERIFY sheet fast
                     DispatchQueue.global(qos: .utility).async {
-                        let npub = try? idBridge.getCurrentNostrIdentity()?.npub
-                        _ = VerificationService.shared.buildMyQRString(nickname: chatViewModel.nickname, npub: npub)
+                        let npub = try? self.idBridge.getCurrentNostrIdentity()?.npub
+                        _ = VerificationService.shared.buildMyQRString(nickname: self.chatViewModel.nickname, npub: npub)
                     }
 
                     appDelegate.chatViewModel = chatViewModel
@@ -66,37 +74,31 @@ struct EdgepulseApp: App {
                     checkForSharedContent()
                 }
                 .onOpenURL { url in
-                    handleURL(url)
+                    self.handleURL(url)
                 }
                 #if os(iOS)
                 .onChange(of: scenePhase) { newPhase in
                     switch newPhase {
                     case .background:
                         // Keep BLE mesh running in background; BLEService adapts scanning automatically
-                        // Always send Tor to dormant on background for a clean restart later.
                         TorManager.shared.setAppForeground(false)
                         TorManager.shared.goDormantOnBackground()
-                        // Stop geohash sampling while backgrounded
                         Task { @MainActor in
                             chatViewModel.endGeohashSampling()
                         }
-                        // Proactively disconnect Nostr to avoid spurious socket errors while Tor is down
                         NostrRelayManager.shared.disconnect()
-                        didEnterBackground = true
+                        appState.didEnterBackground = true
                     case .active:
-                        // Restart services when becoming active
                         chatViewModel.meshService.startServices()
                         TorManager.shared.setAppForeground(true)
-                        // On initial cold launch, Tor was just started in onAppear.
-                        // Skip the deterministic restart the first time we become active.
-                        if didHandleInitialActive && didEnterBackground {
+                        if appState.didHandleInitialActive && appState.didEnterBackground {
                             if TorManager.shared.isAutoStartAllowed() && !TorManager.shared.isReady {
                                 TorManager.shared.ensureRunningOnForeground()
                             }
                         } else {
-                            didHandleInitialActive = true
+                            appState.didHandleInitialActive = true
                         }
-                        didEnterBackground = false
+                        appState.didEnterBackground = false
                         if TorManager.shared.isAutoStartAllowed() {
                             Task.detached {
                                 let _ = await TorManager.shared.awaitReady(timeout: 60)
@@ -108,7 +110,7 @@ struct EdgepulseApp: App {
                                 }
                             }
                         }
-                        checkForSharedContent()
+                        self.checkForSharedContent()
                     case .inactive:
                         break
                     @unknown default:
@@ -117,13 +119,16 @@ struct EdgepulseApp: App {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     // Check for shared content when app becomes active
-                    checkForSharedContent()
+                    self.checkForSharedContent()
                 }
                 #elseif os(macOS)
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                     // App became active
                 }
                 #endif
+                .sheet(isPresented: self.$showPasswordSetup) {
+                    PasswordSetupView(isPresented: self.$showPasswordSetup)
+                }
         }
         #if os(macOS)
         .windowStyle(.hiddenTitleBar)
@@ -273,4 +278,10 @@ extension String {
     var nilIfEmpty: String? {
         self.isEmpty ? nil : self
     }
+}
+
+// Add state container class
+final class AppState: ObservableObject {
+    @Published var didHandleInitialActive: Bool = false
+    @Published var didEnterBackground: Bool = false
 }

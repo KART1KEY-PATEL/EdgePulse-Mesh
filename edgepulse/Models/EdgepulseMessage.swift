@@ -10,7 +10,7 @@ import Foundation
 
 /// Represents a user-visible message in the EdgePulse system.
 /// Handles both broadcast messages and private encrypted messages,
-/// with support for mentions, replies, and delivery tracking.
+/// with support for mentions, replies, file attachments, and delivery tracking.
 /// - Note: This is the primary data model for chat messages
 final class EdgepulseMessage: Codable {
     let id: String
@@ -24,6 +24,7 @@ final class EdgepulseMessage: Codable {
     let senderPeerID: PeerID?
     let mentions: [String]?  // Array of mentioned nicknames
     var deliveryStatus: DeliveryStatus? // Delivery tracking
+    let fileAttachment: FileAttachment? // Optional file attachment
     
     // Cached formatted text (not included in Codable)
     private var _cachedFormattedText: [String: AttributedString] = [:]
@@ -36,10 +37,20 @@ final class EdgepulseMessage: Codable {
         _cachedFormattedText["\(isDark)-\(isSelf)"] = text
     }
     
+    // File attachment structure
+    struct FileAttachment: Codable, Equatable {
+        let fileId: String
+        let fileName: String
+        let mimeType: String?
+        let fileSize: Int64
+        let isEncrypted: Bool
+    }
+    
     // Codable implementation
     enum CodingKeys: String, CodingKey {
         case id, sender, content, timestamp, isRelay, originalSender
         case isPrivate, recipientNickname, senderPeerID, mentions, deliveryStatus
+        case fileAttachment
     }
     
     init(
@@ -53,7 +64,8 @@ final class EdgepulseMessage: Codable {
         recipientNickname: String? = nil,
         senderPeerID: PeerID? = nil,
         mentions: [String]? = nil,
-        deliveryStatus: DeliveryStatus? = nil
+        deliveryStatus: DeliveryStatus? = nil,
+        fileAttachment: FileAttachment? = nil
     ) {
         self.id = id ?? UUID().uuidString
         self.sender = sender
@@ -66,6 +78,7 @@ final class EdgepulseMessage: Codable {
         self.senderPeerID = senderPeerID
         self.mentions = mentions
         self.deliveryStatus = deliveryStatus ?? (isPrivate ? .sending : nil)
+        self.fileAttachment = fileAttachment
     }
 }
 
@@ -83,7 +96,8 @@ extension EdgepulseMessage: Equatable {
                lhs.recipientNickname == rhs.recipientNickname &&
                lhs.senderPeerID == rhs.senderPeerID &&
                lhs.mentions == rhs.mentions &&
-               lhs.deliveryStatus == rhs.deliveryStatus
+               lhs.deliveryStatus == rhs.deliveryStatus &&
+               lhs.fileAttachment == rhs.fileAttachment
     }
 }
 

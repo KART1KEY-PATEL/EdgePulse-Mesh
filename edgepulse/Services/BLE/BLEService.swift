@@ -13,9 +13,7 @@ import UIKit
 /// - ChatViewModel must consume delegate callbacks (`didReceivePublicMessage`, `didReceiveNoisePayload`).
 /// - A lightweight `peerSnapshotPublisher` is provided for non-UI services.
 final class BLEService: NSObject {
-    
     // MARK: - Constants
-    
     #if DEBUG
     static let serviceUUID = CBUUID(string: "F47B5E2D-4A9E-4C5A-9B3F-8E1D2C3A4B5A") // testnet
     #else
@@ -24,7 +22,6 @@ final class BLEService: NSObject {
     static let characteristicUUID = CBUUID(string: "A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D")
     private static let centralRestorationID = "chat.edgepulse.ble.central"
     private static let peripheralRestorationID = "chat.edgepulse.ble.peripheral"
-    
     // Default per-fragment chunk size when link limits are unknown
     private let defaultFragmentSize = TransportConfig.bleDefaultFragmentSize
     private let maxMessageLength = InputValidator.Limits.maxMessageLength
@@ -32,9 +29,7 @@ final class BLEService: NSObject {
     // Flood/battery controls
     private let maxInFlightAssemblies = TransportConfig.bleMaxInFlightAssemblies // cap concurrent fragment assemblies
     private let highDegreeThreshold = TransportConfig.bleHighDegreeThreshold // for adaptive TTL/probabilistic relays
-    
     // MARK: - Core State (5 Essential Collections)
-    
     // 1. Consolidated Peripheral Tracking
     private struct PeripheralState {
         let peripheral: CBPeripheral
@@ -47,7 +42,6 @@ final class BLEService: NSObject {
     }
     private var peripherals: [String: PeripheralState] = [:]  // UUID -> PeripheralState
     private var peerToPeripheralUUID: [PeerID: String] = [:]  // PeerID -> Peripheral UUID
-    
     // 2. BLE Centrals (when acting as peripheral)
     private var subscribedCentrals: [CBCentral] = []
     private var centralToPeerID: [String: PeerID] = [:]  // Central UUID -> Peer ID mapping
@@ -66,7 +60,6 @@ final class BLEService: NSObject {
     private var currentPeerIDs: [PeerID] {
         Array(peers.keys)
     }
-    
     // 4. Efficient Message Deduplication
     private let messageDeduplicator = MessageDeduplicator()
     private var selfBroadcastMessageIDs: [String: (id: String, timestamp: Date)] = [:]
@@ -89,51 +82,33 @@ final class BLEService: NSObject {
     private var activeTransfers: [String: ActiveTransferState] = [:]
     // Backoff for peripherals that recently timed out connecting
     private var recentConnectTimeouts: [String: Date] = [:] // Peripheral UUID -> last timeout
-    
-    // Simple announce throttling
+    // Simpe announce throttling
     private var lastAnnounceSent = Date.distantPast
     private let announceMinInterval: TimeInterval = TransportConfig.bleAnnounceMinInterval
-    
     // Application state tracking (thread-safe)
     #if os(iOS)
     private var isAppActive: Bool = true  // Assume active initially
     #endif
-    
     // MARK: - Core BLE Objects
-    
     private var centralManager: CBCentralManager?
     private var peripheralManager: CBPeripheralManager?
     private var characteristic: CBMutableCharacteristic?
-    
     // MARK: - Identity
-    
     private var noiseService: NoiseEncryptionService
     private let identityManager: SecureIdentityStateManagerProtocol
     private let keychain: KeychainManagerProtocol
     private let idBridge: NostrIdentityBridge
     private var myPeerIDData: Data = Data()
-
-    // MARK: - Advertising Privacy
-    // No Local Name by default for maximum privacy. No rotating alias.
-    
-    // MARK: - Queues
-    
     private let messageQueue = DispatchQueue(label: "mesh.message", attributes: .concurrent)
     private let collectionsQueue = DispatchQueue(label: "mesh.collections", attributes: .concurrent)
     private let messageQueueKey = DispatchSpecificKey<Void>()
     private let bleQueue = DispatchQueue(label: "mesh.bluetooth", qos: .userInitiated)
     private let bleQueueKey = DispatchSpecificKey<Void>()
-    
-    // Queue for messages pending handshake completion
-    private var pendingMessagesAfterHandshake: [PeerID: [(content: String, messageID: String)]] = [:]
-    // Noise typed payloads (ACKs, read receipts, etc.) pending handshake
+        private var pendingMessagesAfterHandshake: [PeerID: [(content: String, messageID: String)]] = [:]
     private var pendingNoisePayloadsAfterHandshake: [PeerID: [Data]] = [:]
-    // Keep a tiny buffer of the last few unique announces we've seen (by sender)
     private var recentAnnounceBySender: [PeerID: EdgepulsePacket] = [:]
     private var recentAnnounceOrder: [PeerID] = []
     private let recentAnnounceBufferCap = 3
-    
-    // Queue for notifications that failed due to full queue
     private var pendingNotifications: [(data: Data, centrals: [CBCentral]?)] = []
 
     // Accumulate long write chunks per central until a full frame decodes
